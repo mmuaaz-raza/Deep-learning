@@ -3,22 +3,29 @@ from pathlib import Path
 import pandas as pd
 import numpy as np
 
-def load_data0_5():
-    data = pd.read_csv("./data/train.csv").to_numpy()
-    X = data[:, 1:] / 255.0
-    Y = data[:,0]
-    mask = Y <=5
-    X =X[mask]
-    Y =Y[mask]
-    return X,Y
-
 def load_data():
     data = pd.read_csv("./data/train.csv").to_numpy()
     X = data[:, 1:] / 255.0
     Y = data[:,0]
-    X = X[Y>5]
-    Y = Y[Y>5]
-    return X,Y
+    ratio = round(len(data)*0.8)
+    X1 = X[:ratio]
+    X2 = X[ratio:]
+    Y1 = Y[:ratio]
+    Y2 = Y[ratio:]
+    return X1,X2,Y1,Y2
+
+def load_data_rotated():
+    data = pd.read_csv("./data/train.csv").to_numpy()
+    X = data[:, 1:] / 255.0
+    for i in range(len(X)):
+        X[i] = np.rot90(X[i].reshape(28,28)).flatten()
+    Y = data[:,0]
+    ratio = round(len(data)*0.8)
+    X1 = X[:ratio]
+    X2 = X[ratio:]
+    Y1 = Y[:ratio]
+    Y2 = Y[ratio:]
+    return X1,X2,Y1,Y2
 
 
 def load_test_data():
@@ -129,11 +136,12 @@ def forward_pass(x):
 
 def forward_pass_lora_1(x,C0,D0,C1,D1,s):
     input = x.reshape(-1,1)
-    Z0 = W0 @ input + B0 +(s * (C0 @ (D0@input)))
+    Z0 = W0 @ input + B0   +(s * (C0 @ (D0@input)))
     A0 = relu(Z0)
-    CD1 = C1 @ D1
-    Z1 = W1 @ A0 + B1 + (s * (CD1@A0))
-    A1 = relu(Z1)
+    # CD1 = C1 @ D1
+    Z1 = W1 @ A0 + B1  
+    # + (s * (CD1@A0))
+    A1 = relu(Z1)      
     Z2 = W2 @ A1 + B2 
     A2 = sigmoid(Z2)
     
@@ -141,7 +149,7 @@ def forward_pass_lora_1(x,C0,D0,C1,D1,s):
 
 
 
-alpha = 0.1
+alpha = 0.01
 
 def evaluate(X,Y,predict,*args):
     corrects = 0
@@ -203,10 +211,10 @@ def TrainNormal(epoch_size:int,W0,B0,W1,B1,W2,B2,X,Y) :
     return W0,B0,W1,B1,W2,B2
 
 
-
-X1,Y1 = load_data()
-# W0,B0,W1,B1,W2,B2= TrainNormal(20,W0,B0,W1,B1,W2,B2,X,Y)
-# np.savez("params_lora.npz", W0=W0, B0=B0, W1=W1, B1=B1, W2=W2, B2=B2, learning_rate=alpha, epoch=20)
+x_train,x_test , y_train,y_test = load_data()
+W0,B0,W1,B1,W2,B2= TrainNormal(20,W0,B0,W1,B1,W2,B2,x_train,y_train)
+print(f"Test set Accuracy : {evaluate(x_test,y_test,forward_pass)*100}")
+np.savez("params_lora.npz", W0=W0, B0=B0, W1=W1, B1=B1, W2=W2, B2=B2, learning_rate=alpha, epoch=20)
 
 
 def TrainLora(epoch_size:int,W0,B0,W1,B1,W2,B2,C0,D0,C1,D1,lora_alpha,rank,X,Y , is_bias,is_weights,is_lora):
@@ -218,10 +226,11 @@ def TrainLora(epoch_size:int,W0,B0,W1,B1,W2,B2,C0,D0,C1,D1,lora_alpha,rank,X,Y ,
         for i,x in enumerate(X):
             # forward pass
             input = x.reshape(-1,1)
-            Z0 = W0 @ input + B0 +(s * (C0 @ (D0@input)))
+            Z0 = W0 @ input + B0   +(s * (C0 @ (D0@input)))
             A0 = relu(Z0)
-            CD1 = C1 @ D1
-            Z1 = W1 @ A0 + B1 + (s * (CD1@A0))
+            # CD1 = C1 @ D1
+            Z1 = W1 @ A0 + B1  
+            # + (s * (CD1@A0))
             A1 = relu(Z1)
 
             Z2 = W2 @ A1 + B2 
@@ -236,18 +245,18 @@ def TrainLora(epoch_size:int,W0,B0,W1,B1,W2,B2,C0,D0,C1,D1,lora_alpha,rank,X,Y ,
                 dW2 = dA2 @ A1.T
             if is_lora :
                 dA1 = (W2.T @ dA2 )* derivative_relu(A1)
-                dD1 = s*( C1.T @ dA1 @ A0.T  )
-                dC1 = s* ( dA1 @ (D1@A0).T )
+                # dD1 = s*( C1.T @ dA1 @ A0.T  )
+                # dC1 = s* ( dA1 @ (D1@A0).T )
 
-                dA0 =  ((W1 + s*CD1).T @dA1) * derivative_relu(A0)
+                dA0 =  (W1.T @dA1) * derivative_relu(A0)
                 dD0 = s*( C0.T @ dA0 @ input.T  )
                 dC0 = s* ( dA0 @ (D0@input).T )
             
 
             
             if is_lora :            
-                C1 -= alpha*dC1
-                D1 -= alpha*dD1
+                # C1 -= alpha*dC1
+                # D1 -= alpha*dD1
                 C0 -= alpha*dC0
                 D0 -= alpha*dD0
             if is_weights :
@@ -258,33 +267,39 @@ def TrainLora(epoch_size:int,W0,B0,W1,B1,W2,B2,C0,D0,C1,D1,lora_alpha,rank,X,Y ,
 
     return C0,D0,C1,D1,W2,B2
 
-import argparse
+# import argparse
 
-parser = argparse.ArgumentParser(description="Model configuration")
-parser.add_argument('--rank', type=int, required=True, help="Set the rank")
-parser.add_argument('--bias', action='store_true', help="Include if bias is True")
-parser.add_argument('--lora', action='store_true', help="Include if lora is True")
-parser.add_argument('--weights', action='store_true', help="Include if weights is True")
+# parser = argparse.ArgumentParser(description="Model configuration")
+# parser.add_argument('--rank', type=int, required=True, help="Set the rank")
+# parser.add_argument('--bias', action='store_true', help="Include if bias is True")
+# parser.add_argument('--weights', action='store_true', help="Include if weights is True")
 
-args = parser.parse_args()
+# args = parser.parse_args()
 
 
-rank = args.rank
-is_bias = args.bias
-is_lora = args.lora
-is_weights = args.weights
+# rank = args.rank
+# is_bias = args.bias
+# is_lora = True if args.rank else False 
+# is_weights = args.weights
+# C0,D0,C1,D1 = load_params_lora(rank)
+# x_train,x_test,y_train,y_test = load_data_rotated()
+# C0,D0,C1,D1,W2,B2 = TrainLora(30,W0,B0,W1,B1,W2,B2,C0,D0,C1,D1,1,rank,x_train,y_train,is_bias,is_weights,is_lora)
 
-C0,D0,C1,D1 = load_params_lora(rank)
-print(is_bias,is_lora,is_weights)
-print(C1.max(),D1.max())
-C0,D0,C1,D1,W2,B2 = TrainLora(20,W0,B0,W1,B1,W2,B2,C0,D0,C1,D1,rank-3,rank,X1,Y1,is_bias,is_weights,is_lora)
+# np.savez(f"params_lora{rank}.npz", C1=C1,D1=D1,C0=C0,D0=D0,rank=rank)
 
-np.savez(f"params_lora{rank}.npz", C1=C1,D1=D1,C0=C0,D0=D0,rank=rank)
-# print(evaluate(X1,Y1,forward_pass_lora_1,C0,D0,C1,D1,1/rank))
+
+# print(f"Rotated set Accuracy : {evaluate(x_test,y_test,forward_pass_lora_1,C0,D0,C1,D1,1/rank)*100}")
+
+# x_train,x_test , y_train,y_test = load_data()
+# print(f"Test set Accuracy : {evaluate(x_test,y_test,forward_pass)*100}")
+
+
 
     
 # testX = load_test_data()
 # generateLabel(testX)
+
+
 
 
 

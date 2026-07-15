@@ -113,7 +113,7 @@ def generateLabel(X):
     return output
 
 
-epoch_size =0
+epoch_size =20
 for epoch in range(epoch_size):
     if epoch%5 == 0:
         print(f"epoch {epoch} - Accurary : {evaluate(X)*100}")
