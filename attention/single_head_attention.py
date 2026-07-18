@@ -1,34 +1,32 @@
-import numpy as np
+import numpy as np 
 
-print(np.array([[2],[4]]) * np.array([[9,8],[2,1]]))
 
-rng = np.random.default_rng()
 
-Input = rng.uniform(-1,1,size=(3,128))
-Wq = rng.uniform(-1,1,size=(128,32))
-Wk = rng.uniform(-1,1,size=(128,32))
-Wv = rng.uniform(-1,1,size=(128,128))
+Embbedding_d = 128;dL = 4 ; dK=dQ=24 ; dV = 12
+Input = np.random.randn(dL,Embbedding_d)
+Wk = np.random.randn(Embbedding_d,dK)
+Wq = np.random.randn(Embbedding_d,dQ)
+Wv = np.random.randn(Embbedding_d,dV)
 
-# forward pass
-
-Iwq = Input @ Wq
-Iwk = Input @ Wk
-Wkq = (Iwk @ Iwq.T )/32 
-
-denominators = np.zeros(10)
-for i,col in enumerate(Wkq.T):
-    denominators[i] = np.sum(np.exp(col),axis=0)
-
-for i in range(Wkq.shape[0]):
-    for j in range(Wkq.shape[1]) :
-        if i < j:
-            Wkq[i][j]  = -np.inf   
-        else :
-            Wkq[i][j] = np.exp(Wkq[i][j]) / denominators[j]  
-
+K= Input @ Wk # (dL,dK)
+Q = Input @ Wq
 V = Input @ Wv
 
-Va = Wkq * V 
+self_attention = (Q @ K.T )/ (dK**0.5) 
+mask = np.tril(np.ones((dL,dL)))
+mask[mask==0] = -np.inf 
+mask[mask==1] = 0
+self_attention += mask 
+
+def softmax(x):
+    x -= x.max(axis=1,keepdims=True)
+    return (np.exp(x) / (np.sum(np.exp(x),axis=1,keepdims=True)))
+
+
+
+
+self_attention = softmax(self_attention) @ V
+print(self_attention)
 
 
 
